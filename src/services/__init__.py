@@ -6,7 +6,7 @@ with proper dependency injection.
 """
 
 from dataclasses import dataclass
-from typing import Optional, Any
+from typing import Any
 
 from ..config import AppConfig
 from ..utils.logging import get_logger, AuditLogger
@@ -42,7 +42,6 @@ def create_services(config: AppConfig) -> Services:
     from ..ejbca.client import EJBCAClient, EJBCAConfig
     from ..ad.ldap_client import ADLDAPClient, LDAPConfig
     from ..ad.templates import TemplateManager, TemplateMappingConfig, PolicyProvider
-    from ..auth.kerberos import KerberosAuth, KerberosConfig, MockKerberosAuth
     from ..cache.redis_cache import CacheConfig, create_cache
     from ..enrollment_handler import EnrollmentHandler
     from ..soap.xcep_service import XCEPService

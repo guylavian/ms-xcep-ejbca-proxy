@@ -17,7 +17,6 @@ from src.soap.wstep_service import (
 )
 from src.soap.types import NS, SoapAction, SoapParser
 
-
 # Sample PKCS#10 CSR (base64 encoded DER format, valid for testing)
 # Generated with cryptography library: CN=TestUser, RSA 2048-bit key
 SAMPLE_CSR_B64 = "MIICWDCCAUACAQAwEzERMA8GA1UEAwwIVGVzdFVzZXIwggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQDQdtxhQZ0H5aYiAgpWMkmbVvGjB/OMHCImK/NaXQfIYe9McAecy8Nc5O4TbdZYYAkPR4L8wEpPVxBmf1nG4TopmXFnNaxYbUH9XS4W1N09j/SXxIqKUl0vk3DfTlZX8J7CX/4fC70P2ht7af5KRRAmD1CGlJRhr7B45VRaPGDOWcCDyY8dfphBMGGEARTfStFAzWd631kvQSwV6Qqi+zNy+QzMuSaR9AmXmw90vIAbeFbs7vG4NEFNP3kNx9huUWzqq3ZHWLs5lc+6XDVlUwrDg5YtcuaZa3GHKy8C+rrF8YtECYIPMwnFd0Op94JD2+XKb8R8BM2xsH3c/m4LAKxTAgMBAAGgADANBgkqhkiG9w0BAQsFAAOCAQEAmy8JZSy9NaQ3E5gE0TZInwV0+AXvkIT3g9P/ItcLfuKOqcmUfbyTBbk74uT0LxWzvwgv44YtUecOgjJsK8yyGL0MgScxYXBGI1I5bO1V8wig9xO72BI7xiiWzZbJpyaEsRcxJG8trfoTTt4xeF1C85dwcPYQNGlieq/6r8HJ3TUjmkRxyV2d8lVZXRw4tuqGd2a2UlMCQjXKEFhMoYLjDhPdGWomDRnC6pYJUydwNlK1szQv4U7b+jUaWHq5znb92anZ/a+Pt0NQcPC7gvXmoRuPDve/kiZ9Z8JsZ1w6Z5tXZY4IflauOJMQbXNf0cIr0YBPUYNVFnISM4uYhIgYlA=="
@@ -26,19 +25,19 @@ SAMPLE_CSR_B64 = "MIICWDCCAUACAQAwEzERMA8GA1UEAwwIVGVzdFVzZXIwggEiMA0GCSqGSIb3DQ
 def _create_test_certificate() -> bytes:
     """Create a self-signed test certificate in DER format."""
     from cryptography.hazmat.primitives.serialization import Encoding
-    
+
     # Generate a private key
     private_key = rsa.generate_private_key(
         public_exponent=65537,
         key_size=2048,
     )
-    
+
     # Create a self-signed certificate
     subject = issuer = x509.Name([
         x509.NameAttribute(NameOID.COMMON_NAME, "Test Certificate"),
         x509.NameAttribute(NameOID.ORGANIZATION_NAME, "Test Org"),
     ])
-    
+
     cert = (
         x509.CertificateBuilder()
         .subject_name(subject)
@@ -49,7 +48,7 @@ def _create_test_certificate() -> bytes:
         .not_valid_after(datetime.now(timezone.utc) + timedelta(days=365))
         .sign(private_key, hashes.SHA256())
     )
-    
+
     return cert.public_bytes(encoding=Encoding.DER)
 
 

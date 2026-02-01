@@ -10,14 +10,15 @@ https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-xcep/
 
 import logging
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Optional
+
 from lxml import etree
 
 from .types import (
-    NS, NSMAP, SoapAction, SoapBuilder, SoapParser,
+    NS, SoapAction, SoapBuilder, SoapParser,
     CertificatePolicy, CAInfo, OID, PolicyResponse,
-    serialize_xml, create_nil_element
+    serialize_xml
 )
 
 logger = logging.getLogger(__name__)
@@ -51,8 +52,8 @@ class XCEPService:
         """
         self.policy_provider = policy_provider
 
-    def handle_request(self, request_xml: bytes, client_identity: str, 
-                        http_soap_action: Optional[str] = None) -> tuple[bytes, str]:
+    def handle_request(self, request_xml: bytes, client_identity: str,
+                       http_soap_action: Optional[str] = None) -> tuple[bytes, str]:
         """
         Handle incoming SOAP request.
 
@@ -96,7 +97,7 @@ class XCEPService:
 
         # Get policies for this client (returns tuple of policies, groups_hash)
         result = self.policy_provider.get_policies_for_client(client_identity)
-        
+
         # Handle both old (single return) and new (tuple return) signatures
         if isinstance(result, tuple):
             policies, groups_hash = result

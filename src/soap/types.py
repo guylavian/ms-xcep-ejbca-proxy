@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional
+
 from lxml import etree
 
 
@@ -41,6 +42,7 @@ NSMAP = {
     "xsi": NS.XSI,
     "xsd": NS.XSD,
 }
+
 
 # SOAP Actions - per TameMyCerts.WSTEP reference implementation
 class SoapAction:
@@ -167,7 +169,7 @@ class CertificateValidity:
     """Certificate validity period."""
 
     validity_period_seconds: int = 31536000  # 1 year
-    renewal_period_seconds: int = 5184000   # 60 days
+    renewal_period_seconds: int = 5184000  # 60 days
 
 
 @dataclass
@@ -372,14 +374,14 @@ class SoapParser:
         action = envelope.find(f".//{{{NS.WSA}}}Action")
         if action is not None and action.text:
             return action.text.strip()
-        
+
         # Fallback to HTTP SOAPAction header
         if http_soap_action:
             # SOAPAction header may be quoted
             action_value = http_soap_action.strip().strip('"')
             if action_value:
                 return action_value
-        
+
         return None
 
     @staticmethod

@@ -21,6 +21,7 @@ from typing import Optional, Callable, Tuple
 try:
     import gssapi
     from gssapi.raw import sec_contexts
+
     GSSAPI_AVAILABLE = True
 except ImportError:
     GSSAPI_AVAILABLE = False
@@ -219,6 +220,7 @@ def require_kerberos(kerberos_auth: KerberosAuth):
             # g.kerberos_principal contains the authenticated user
             return f"Hello {g.kerberos_principal}"
     """
+
     def decorator(f: Callable) -> Callable:
         @wraps(f)
         def decorated_function(*args, **kwargs):
@@ -261,6 +263,7 @@ def require_kerberos(kerberos_auth: KerberosAuth):
                 return kerberos_auth.create_challenge_response()
 
         return decorated_function
+
     return decorator
 
 

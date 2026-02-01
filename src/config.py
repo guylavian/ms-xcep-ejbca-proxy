@@ -4,8 +4,9 @@ Application configuration using dataclasses.
 Provides type-safe configuration loading from YAML files.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional
+
 import yaml
 
 

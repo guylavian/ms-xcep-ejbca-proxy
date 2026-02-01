@@ -6,12 +6,10 @@ Handles CSR parsing, certificate manipulation, and PKCS#7 creation.
 
 import base64
 import logging
-from datetime import datetime
-from typing import Optional, Tuple
+from typing import Optional
 
 from cryptography import x509
-from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import rsa, ec, padding
+from cryptography.hazmat.primitives.asymmetric import rsa, ec
 from cryptography.hazmat.primitives.serialization import pkcs7, Encoding
 from cryptography.x509.oid import NameOID, ExtensionOID
 
@@ -286,8 +284,10 @@ def get_certificate_info(cert: x509.Certificate) -> dict:
         "subject": cert.subject.rfc4514_string(),
         "issuer": cert.issuer.rfc4514_string(),
         "serial_number": format(cert.serial_number, 'x'),
-        "not_before": cert.not_valid_before_utc.isoformat() if hasattr(cert, 'not_valid_before_utc') else cert.not_valid_before.isoformat(),
-        "not_after": cert.not_valid_after_utc.isoformat() if hasattr(cert, 'not_valid_after_utc') else cert.not_valid_after.isoformat(),
+        "not_before": cert.not_valid_before_utc.isoformat() if hasattr(cert,
+                                                                       'not_valid_before_utc') else cert.not_valid_before.isoformat(),
+        "not_after": cert.not_valid_after_utc.isoformat() if hasattr(cert,
+                                                                     'not_valid_after_utc') else cert.not_valid_after.isoformat(),
         "version": cert.version.value,
     }
 

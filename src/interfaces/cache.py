@@ -80,7 +80,7 @@ class CacheBackend(Protocol):
         ...
 
     def set_policy_response(self, client_identity: str, response: bytes,
-                           groups_hash: str, ttl: int = 300) -> bool:
+                            groups_hash: str, ttl: int = 300) -> bool:
         """
         Cache policy response.
 

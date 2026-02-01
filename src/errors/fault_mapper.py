@@ -5,7 +5,8 @@ Maps domain exceptions to proper SOAP 1.2 faults for MS-XCEP/WSTEP responses.
 """
 
 from dataclasses import dataclass
-from typing import Optional, Type
+from typing import Optional
+
 from lxml import etree
 
 from .exceptions import (
@@ -21,7 +22,6 @@ from .exceptions import (
     TemplateError,
     TemplateNotFoundError,
 )
-
 
 # SOAP 1.2 namespaces
 NS_SOAP = "http://www.w3.org/2003/05/soap-envelope"
@@ -246,10 +246,10 @@ class FaultMapper:
 
     @classmethod
     def create_fault_response(
-        cls,
-        exc: Exception,
-        relates_to: Optional[str] = None,
-        include_detail: bool = False
+            cls,
+            exc: Exception,
+            relates_to: Optional[str] = None,
+            include_detail: bool = False
     ) -> bytes:
         """
         Create complete SOAP fault response from exception.

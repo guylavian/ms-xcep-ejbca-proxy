@@ -8,13 +8,14 @@ and provides policy information to the XCEP service.
 import logging
 from dataclasses import dataclass
 from typing import Optional
+
 import yaml
 
+from ..ejbca.models import TemplateMapping
 from ..soap.types import (
     CertificatePolicy, PolicyResponse, OID, CAInfo,
     CertificateValidity, PrivateKeyAttributes
 )
-from ..ejbca.models import TemplateMapping
 
 logger = logging.getLogger(__name__)
 
@@ -264,7 +265,7 @@ class TemplateManager:
 
             # Parse validity
             validity_seconds = 31536000  # Default 1 year
-            renewal_seconds = 5184000    # Default 60 days
+            renewal_seconds = 5184000  # Default 60 days
             if mapping.validity_override:
                 validity_seconds = self._parse_validity(mapping.validity_override)
                 renewal_seconds = validity_seconds // 6  # Renewal at 5/6 of validity

@@ -9,7 +9,7 @@ for the proxy server:
 """
 
 from .health import health_bp
-from .xcep import xcep_bp
 from .wstep import wstep_bp
+from .xcep import xcep_bp
 
 __all__ = ["health_bp", "xcep_bp", "wstep_bp"]

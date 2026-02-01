@@ -4,19 +4,17 @@ Certificate Enrollment Handler.
 Bridges WSTEP requests to EJBCA enrollment operations.
 """
 
-import base64
 import logging
 import secrets
 import string
+from typing import List
 from typing import Optional
 
-from typing import List
-
+from .ad.ldap_client import ADLDAPClient
+from .ad.templates import TemplateManager
 from .ejbca.client import EJBCAClient, EJBCAError, EJBCAValidationError
 from .ejbca.models import EndEntity, EnrollmentRequest
 from .soap.wstep_service import EnrollmentResult, DispositionStatus, RequestType
-from .ad.templates import TemplateManager
-from .ad.ldap_client import ADLDAPClient
 from .utils.crypto import (
     parse_csr, get_csr_subject, get_csr_common_name, csr_to_base64,
     get_certificate_info, extract_principal_cn
@@ -222,7 +220,7 @@ class EnrollmentHandler:
             return self._create_error_result("Internal enrollment error", request_id)
 
     def _check_template_authorization(self, client_identity: str, template_name: str,
-                                        mapping, request_id: str) -> Optional[EnrollmentResult]:
+                                      mapping, request_id: str) -> Optional[EnrollmentResult]:
         """
         Check if client is authorized to use the requested template.
 
@@ -327,7 +325,7 @@ class EnrollmentHandler:
             return None
 
     def _generate_username(self, principal: str, csr_cn: str = None,
-                            template_name: str = None) -> str:
+                           template_name: str = None) -> str:
         """
         Generate EJBCA username from client identity.
 

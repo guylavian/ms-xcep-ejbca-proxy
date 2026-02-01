@@ -210,7 +210,7 @@ class WindowsClientSimulator:
         return result
 
     def request_certificate(self, template_name: str = "User",
-                           common_name: str = "Test User") -> dict:
+                            common_name: str = "Test User") -> dict:
         """
         Send RequestSecurityToken request (MS-WSTEP).
 
@@ -383,7 +383,7 @@ class WindowsClientSimulator:
         return result
 
     def run_full_enrollment(self, template_name: str = "User",
-                           common_name: str = "Test User"):
+                            common_name: str = "Test User"):
         """Run full enrollment flow: GetPolicies + RequestSecurityToken."""
         print("\n" + "#" * 60)
         print("# Windows Certificate Enrollment Simulator")

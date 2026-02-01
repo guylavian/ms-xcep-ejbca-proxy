@@ -4,7 +4,6 @@ LDAP client interface.
 Defines the protocol for directory service backends (AD, OpenLDAP, etc.)
 """
 
-from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Optional, List, Dict, Any, Protocol, runtime_checkable
 

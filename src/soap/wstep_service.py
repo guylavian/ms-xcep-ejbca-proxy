@@ -11,14 +11,14 @@ https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wstep/
 import base64
 import logging
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional
+
 from lxml import etree
 
 from .types import (
-    NS, NSMAP, SoapAction, TokenType, SoapBuilder, SoapParser,
-    serialize_xml, create_nil_element
+    NS, SoapAction, TokenType, SoapBuilder, SoapParser,
+    serialize_xml
 )
 
 logger = logging.getLogger(__name__)
@@ -104,7 +104,7 @@ class WSTEPService:
         self.enrollment_handler = enrollment_handler
 
     def handle_request(self, request_xml: bytes, client_identity: str,
-                        client_ip: str = "", http_soap_action: Optional[str] = None) -> bytes:
+                       client_ip: str = "", http_soap_action: Optional[str] = None) -> bytes:
         """
         Handle incoming SOAP request.
 
@@ -191,7 +191,7 @@ class WSTEPService:
         return serialize_xml(response)
 
     def _parse_request_security_token(self,
-                                       envelope: etree._Element) -> SecurityTokenRequest:
+                                      envelope: etree._Element) -> SecurityTokenRequest:
         """Parse RequestSecurityToken request elements."""
         body = SoapParser.get_body(envelope)
         message_id = SoapParser.get_message_id(envelope)
@@ -271,10 +271,10 @@ class WSTEPService:
         return context
 
     def _build_request_security_token_response(
-        self,
-        result: EnrollmentResult,
-        relates_to: str = None,
-        context: RequestContext = None
+            self,
+            result: EnrollmentResult,
+            relates_to: str = None,
+            context: RequestContext = None
     ) -> etree._Element:
         """
         Build RequestSecurityTokenResponse SOAP message.

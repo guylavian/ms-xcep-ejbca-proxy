@@ -10,7 +10,6 @@ Reference: https://docs.keyfactor.com/ejbca/latest/ejbca-rest-interface
 import base64
 import logging
 from dataclasses import dataclass
-from datetime import datetime
 from typing import Optional
 from urllib.parse import urljoin
 
@@ -19,8 +18,8 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 from .models import (
-    CAInfo, CertificateProfile, EndEntityProfile, EndEntity,
-    EnrollmentRequest, EnrollmentResponse, EndEntityStatus
+    CAInfo, EndEntity,
+    EnrollmentRequest, EnrollmentResponse
 )
 
 logger = logging.getLogger(__name__)
@@ -195,7 +194,7 @@ class EJBCAClient:
         )
 
     def get_certificate_by_serial(self, issuer_dn: str,
-                                   serial_number: str) -> Optional[bytes]:
+                                  serial_number: str) -> Optional[bytes]:
         """
         Get certificate by issuer DN and serial number.
 

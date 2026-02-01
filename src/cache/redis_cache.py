@@ -3,38 +3,50 @@ Redis caching layer for certificate enrollment proxy.
 
 Caches GetPolicies responses and other expensive operations
 to reduce load on LDAP and EJBCA backends.
+
+Features:
+- Redis + in-memory fallback with identical interface
+- Safe key building with delimiter
+- Compression for large policy responses
+- SCAN-based pattern invalidation (no KEYS)
+- Cached availability checks (avoid ping per operation)
+- Stampede protection with tokenized distributed locks (safe unlock via Lua)
+- Proper JSON serialize/deserialize for datetime + bytes
 """
 
+from __future__ import annotations
+
+import fnmatch
+import hashlib
 import json
 import logging
-import hashlib
 import time
+import uuid
 import zlib
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Optional, Any, Callable, Union, Protocol, runtime_checkable
 from functools import wraps
+from typing import Any, Callable, Optional, Protocol, runtime_checkable
 
 try:
-    import redis
+    import redis  # type: ignore
+
     REDIS_AVAILABLE = True
 except ImportError:
+    redis = None  # type: ignore
     REDIS_AVAILABLE = False
-    redis = None
 
 logger = logging.getLogger(__name__)
 
 
 class CacheError(Exception):
     """Cache operation error."""
-    pass
 
 
 @dataclass
 class CacheConfig:
     """Cache configuration."""
-
     host: str = "localhost"
     port: int = 6379
     db: int = 0
@@ -47,72 +59,70 @@ class CacheConfig:
 
     # Default TTLs (in seconds)
     default_ttl: int = 3600  # 1 hour
-    policy_ttl: int = 7200   # 2 hours for GetPolicies responses
+    policy_ttl: int = 7200  # 2 hours for GetPolicies responses
     template_ttl: int = 14400  # 4 hours for AD template info
-    ca_info_ttl: int = 86400   # 24 hours for CA information
+    ca_info_ttl: int = 86400  # 24 hours for CA information
 
-    # Key prefixes
+    # Key prefix (namespace)
     key_prefix: str = "xcep_proxy"
 
-    # Enable/disable cache
+    # Enable/disable cache entirely
     enabled: bool = True
 
-    # Compression threshold (bytes) - compress responses larger than this
+    # Compression threshold (bytes): compress responses larger than this
     compression_threshold: int = 1024
 
-    # Availability check interval (seconds) - don't ping Redis on every call
+    # Availability check interval (seconds): don't ping Redis on every call
     availability_check_interval: float = 5.0
 
     # Stampede protection lock TTL (seconds)
     lock_ttl: int = 10
 
 
-# Key component delimiter - prevents key collisions
+# Key delimiter - prevents collisions
 KEY_DELIMITER = ":"
 
 
 @runtime_checkable
 class CacheBackend(Protocol):
-    """
-    Protocol defining the cache interface.
+    """Interface for cache backends (Redis and Memory)."""
 
-    Both RedisCache and MemoryCache implement this protocol,
-    ensuring they are interchangeable.
-    """
+    config: CacheConfig
 
     @property
     def available(self) -> bool:
-        """Check if cache is available."""
+        ...
+
+    def make_key(self, *parts: Any) -> str:
         ...
 
     def get(self, key: str) -> Optional[Any]:
-        """Get value from cache."""
         ...
 
-    def set(self, key: str, value: Any, ttl: int = None) -> bool:
-        """Set value in cache with TTL."""
+    def set(self, key: str, value: Any, ttl: int | None = None) -> bool:
         ...
 
     def delete(self, key: str) -> bool:
-        """Delete key from cache."""
         ...
 
     def clear_pattern(self, pattern: str) -> int:
-        """Delete keys matching pattern."""
         ...
 
-    def get_policy_response(self, client_identity: str,
-                            groups_hash: str = None) -> Optional[bytes]:
-        """Get cached GetPolicies response."""
+    # High-level ops used by enrollment proxy
+    def get_policy_response(self, client_identity: str, groups_hash: str | None = None) -> Optional[bytes]:
         ...
 
-    def set_policy_response(self, client_identity: str, response: bytes,
-                            groups_hash: str = None) -> bool:
-        """Cache GetPolicies response."""
+    def set_policy_response(self, client_identity: str, response: bytes, groups_hash: str | None = None) -> bool:
         ...
 
-    def invalidate_policy_cache(self, client_identity: str = None) -> int:
-        """Invalidate policy cache."""
+    def invalidate_policy_cache(self, client_identity: str | None = None) -> int:
+        ...
+
+    # Optional but implemented by both backends here
+    def acquire_lock(self, lock_name: str, ttl: int | None = None) -> Optional[str]:
+        ...
+
+    def release_lock(self, lock_name: str, token: str) -> bool:
         ...
 
 
@@ -120,8 +130,11 @@ class BaseCacheBackend(ABC):
     """
     Abstract base class for cache backends.
 
-    Provides common functionality for key generation, compression,
-    and serialization. Subclasses implement storage-specific operations.
+    Provides:
+    - Consistent key generation
+    - Compression helpers
+    - JSON serialize/deserialize with datetime/bytes support
+    - High-level cache operations (policy/templates/CA/user groups)
     """
 
     # Key type prefixes
@@ -134,52 +147,59 @@ class BaseCacheBackend(ABC):
     def __init__(self, config: CacheConfig):
         self.config = config
 
-    def _make_key(self, *parts) -> str:
+    # ---- Key helpers ----
+
+    def make_key(self, *parts: Any) -> str:
         """
         Create a cache key from parts with consistent delimiter.
-
-        Uses KEY_DELIMITER between all parts to prevent collisions.
         Example: xcep_proxy:policy:abc123:default
         """
         all_parts = [self.config.key_prefix]
-        all_parts.extend(str(p) for p in parts if p is not None)
+        all_parts.extend(str(p) for p in parts if p is not None and str(p) != "")
         return KEY_DELIMITER.join(all_parts)
 
+    # Backward-compatible alias (avoid breaking existing code)
+    def _make_key(self, *parts: Any) -> str:
+        return self.make_key(*parts)
+
     def _hash_key(self, data: str) -> str:
-        """Create a hash of data for use in keys."""
-        return hashlib.sha256(data.encode()).hexdigest()[:16]
+        return hashlib.sha256(data.encode("utf-8")).hexdigest()[:16]
+
+    # ---- Compression helpers (bytes) ----
 
     def _compress(self, data: bytes) -> bytes:
-        """Compress data if above threshold."""
+        """
+        Compress data if above threshold and compression is beneficial.
+        Prefix with b'Z' for compressed and b'R' for raw.
+        """
         if len(data) > self.config.compression_threshold:
             compressed = zlib.compress(data, level=6)
-            # Only use compressed if it's actually smaller
             if len(compressed) < len(data):
-                return b"Z" + compressed  # Prefix to indicate compression
-        return b"R" + data  # Raw/uncompressed
+                return b"Z" + compressed
+        return b"R" + data
 
     def _decompress(self, data: bytes) -> bytes:
-        """Decompress data if it was compressed."""
+        """Decompress data if prefixed, otherwise return as-is (legacy)."""
         if not data:
             return data
-        if data[0:1] == b"Z":
-            return zlib.decompress(data[1:])
-        elif data[0:1] == b"R":
-            return data[1:]
-        # Legacy data without prefix
-        return data
+        prefix = data[:1]
+        payload = data[1:]
+        if prefix == b"Z":
+            return zlib.decompress(payload)
+        if prefix == b"R":
+            return payload
+        return data  # legacy without prefix
+
+    # ---- JSON serialize/deserialize ----
 
     def _serialize(self, value: Any) -> str:
-        """Serialize value for storage."""
         return json.dumps(value, default=self._json_serializer)
 
     def _deserialize(self, data: str) -> Any:
-        """Deserialize value from storage."""
-        return json.loads(data)
+        return json.loads(data, object_hook=self._json_object_hook)
 
     @staticmethod
-    def _json_serializer(obj):
-        """Custom JSON serializer for objects not serializable by default."""
+    def _json_serializer(obj: Any) -> Any:
         if isinstance(obj, datetime):
             return {"__datetime__": obj.isoformat()}
         if isinstance(obj, bytes):
@@ -187,167 +207,143 @@ class BaseCacheBackend(ABC):
             return {"__bytes__": base64.b64encode(obj).decode("ascii")}
         raise TypeError(f"Object of type {type(obj)} is not JSON serializable")
 
-    # Abstract methods to be implemented by subclasses
+    @staticmethod
+    def _json_object_hook(obj: dict) -> Any:
+        if "__datetime__" in obj:
+            return datetime.fromisoformat(obj["__datetime__"])
+        if "__bytes__" in obj:
+            import base64
+            return base64.b64decode(obj["__bytes__"].encode("ascii"))
+        return obj
+
+    # ---- Abstract low-level methods ----
 
     @property
     @abstractmethod
     def available(self) -> bool:
-        """Check if cache is available."""
-        pass
+        ...
 
     @abstractmethod
     def get(self, key: str) -> Optional[Any]:
-        """Get value from cache."""
-        pass
+        ...
 
     @abstractmethod
-    def set(self, key: str, value: Any, ttl: int = None) -> bool:
-        """Set value in cache with TTL."""
-        pass
+    def set(self, key: str, value: Any, ttl: int | None = None) -> bool:
+        ...
 
     @abstractmethod
     def delete(self, key: str) -> bool:
-        """Delete key from cache."""
-        pass
+        ...
 
     @abstractmethod
     def clear_pattern(self, pattern: str) -> int:
-        """Delete keys matching pattern."""
-        pass
-
-    # Common high-level cache operations
-
-    def get_policy_response(self, client_identity: str,
-                            groups_hash: str = None) -> Optional[bytes]:
-        """Get cached GetPolicies response."""
-        cache_key = self._make_key(
-            self.KEY_POLICY,
-            self._hash_key(client_identity),
-            groups_hash or "default"
-        )
-        result = self._get_raw(cache_key)
-        if result:
-            return self._decompress(result)
-        return None
-
-    def set_policy_response(self, client_identity: str, response: bytes,
-                            groups_hash: str = None) -> bool:
-        """Cache GetPolicies response with compression."""
-        cache_key = self._make_key(
-            self.KEY_POLICY,
-            self._hash_key(client_identity),
-            groups_hash or "default"
-        )
-        compressed = self._compress(response)
-        return self._set_raw(cache_key, compressed, self.config.policy_ttl)
-
-    def invalidate_policy_cache(self, client_identity: str = None) -> int:
-        """Invalidate policy cache."""
-        if client_identity:
-            pattern = self._make_key(self.KEY_POLICY, self._hash_key(client_identity), "*")
-        else:
-            pattern = self._make_key(self.KEY_POLICY, "*")
-        return self.clear_pattern(pattern)
-
-    # Template cache operations
-
-    def get_templates(self) -> Optional[list]:
-        """Get cached certificate templates."""
-        key = self._make_key(self.KEY_TEMPLATE, "all")
-        return self.get(key)
-
-    def set_templates(self, templates: list) -> bool:
-        """Cache certificate templates."""
-        key = self._make_key(self.KEY_TEMPLATE, "all")
-        return self.set(key, templates, self.config.template_ttl)
-
-    def get_template(self, template_name: str) -> Optional[dict]:
-        """Get cached template by name."""
-        key = self._make_key(self.KEY_TEMPLATE, template_name.lower())
-        return self.get(key)
-
-    def set_template(self, template_name: str, template: dict) -> bool:
-        """Cache template by name."""
-        key = self._make_key(self.KEY_TEMPLATE, template_name.lower())
-        return self.set(key, template, self.config.template_ttl)
-
-    def invalidate_templates(self) -> int:
-        """Invalidate all template cache."""
-        return self.clear_pattern(self._make_key(self.KEY_TEMPLATE, "*"))
-
-    # CA cache operations
-
-    def get_ca_info(self, ca_name: str) -> Optional[dict]:
-        """Get cached CA information."""
-        key = self._make_key(self.KEY_CA, ca_name.lower())
-        return self.get(key)
-
-    def set_ca_info(self, ca_name: str, ca_info: dict) -> bool:
-        """Cache CA information."""
-        key = self._make_key(self.KEY_CA, ca_name.lower())
-        return self.set(key, ca_info, self.config.ca_info_ttl)
-
-    def get_ca_list(self) -> Optional[list]:
-        """Get cached list of CAs."""
-        key = self._make_key(self.KEY_CA, "list")
-        return self.get(key)
-
-    def set_ca_list(self, cas: list) -> bool:
-        """Cache list of CAs."""
-        key = self._make_key(self.KEY_CA, "list")
-        return self.set(key, cas, self.config.ca_info_ttl)
-
-    # User cache operations
-
-    def get_user_groups(self, principal: str) -> Optional[list]:
-        """Get cached user group memberships."""
-        key = self._make_key(self.KEY_USER, self._hash_key(principal), "groups")
-        return self.get(key)
-
-    def set_user_groups(self, principal: str, groups: list,
-                        ttl: int = 1800) -> bool:
-        """Cache user group memberships (shorter TTL for security)."""
-        key = self._make_key(self.KEY_USER, self._hash_key(principal), "groups")
-        return self.set(key, groups, ttl)
-
-    # Raw bytes operations (for compressed data)
+        ...
 
     @abstractmethod
     def _get_raw(self, key: str) -> Optional[bytes]:
-        """Get raw bytes from cache."""
-        pass
+        ...
 
     @abstractmethod
     def _set_raw(self, key: str, value: bytes, ttl: int) -> bool:
-        """Set raw bytes in cache."""
-        pass
+        ...
+
+    # ---- High-level operations ----
+
+    # Policy
+    def get_policy_response(self, client_identity: str, groups_hash: str | None = None) -> Optional[bytes]:
+        cache_key = self.make_key(self.KEY_POLICY, self._hash_key(client_identity), groups_hash or "default")
+        raw = self._get_raw(cache_key)
+        if raw:
+            try:
+                return self._decompress(raw)
+            except Exception as e:
+                logger.warning(f"Policy decompress failed for {cache_key}: {e}")
+        return None
+
+    def set_policy_response(self, client_identity: str, response: bytes, groups_hash: str | None = None) -> bool:
+        cache_key = self.make_key(self.KEY_POLICY, self._hash_key(client_identity), groups_hash or "default")
+        return self._set_raw(cache_key, self._compress(response), self.config.policy_ttl)
+
+    def invalidate_policy_cache(self, client_identity: str | None = None) -> int:
+        if client_identity:
+            pattern = self.make_key(self.KEY_POLICY, self._hash_key(client_identity), "*")
+        else:
+            pattern = self.make_key(self.KEY_POLICY, "*")
+        return self.clear_pattern(pattern)
+
+    # Templates
+    def get_templates(self) -> Optional[list]:
+        return self.get(self.make_key(self.KEY_TEMPLATE, "all"))
+
+    def set_templates(self, templates: list) -> bool:
+        return self.set(self.make_key(self.KEY_TEMPLATE, "all"), templates, self.config.template_ttl)
+
+    def get_template(self, template_name: str) -> Optional[dict]:
+        return self.get(self.make_key(self.KEY_TEMPLATE, template_name.lower()))
+
+    def set_template(self, template_name: str, template: dict) -> bool:
+        return self.set(self.make_key(self.KEY_TEMPLATE, template_name.lower()), template, self.config.template_ttl)
+
+    def invalidate_templates(self) -> int:
+        return self.clear_pattern(self.make_key(self.KEY_TEMPLATE, "*"))
+
+    # CA info
+    def get_ca_info(self, ca_name: str) -> Optional[dict]:
+        return self.get(self.make_key(self.KEY_CA, ca_name.lower()))
+
+    def set_ca_info(self, ca_name: str, ca_info: dict) -> bool:
+        return self.set(self.make_key(self.KEY_CA, ca_name.lower()), ca_info, self.config.ca_info_ttl)
+
+    def get_ca_list(self) -> Optional[list]:
+        return self.get(self.make_key(self.KEY_CA, "list"))
+
+    def set_ca_list(self, cas: list) -> bool:
+        return self.set(self.make_key(self.KEY_CA, "list"), cas, self.config.ca_info_ttl)
+
+    # User groups
+    def get_user_groups(self, principal: str) -> Optional[list]:
+        return self.get(self.make_key(self.KEY_USER, self._hash_key(principal), "groups"))
+
+    def set_user_groups(self, principal: str, groups: list, ttl: int = 1800) -> bool:
+        return self.set(self.make_key(self.KEY_USER, self._hash_key(principal), "groups"), groups, ttl)
+
+    # Locks (default behavior; overridden where needed)
+    def acquire_lock(self, lock_name: str, ttl: int | None = None) -> Optional[str]:
+        # Default: no-op lock, always "acquired"
+        return "no-lock"
+
+    def release_lock(self, lock_name: str, token: str) -> bool:
+        return True
 
 
 class RedisCache(BaseCacheBackend):
     """
-    Redis-based caching for the enrollment proxy.
-
-    Features:
+    Redis cache backend with:
     - Connection pooling
-    - Compression for large responses
-    - SCAN-based pattern deletion (O(1) per iteration)
-    - Cached availability checks
-    - Stampede protection via SETNX locks
+    - SCAN invalidation
+    - Availability caching
+    - Safe distributed locks (token + Lua unlock)
+    """
+
+    _UNLOCK_LUA = """
+    if redis.call("GET", KEYS[1]) == ARGV[1] then
+        return redis.call("DEL", KEYS[1])
+    else
+        return 0
+    end
     """
 
     def __init__(self, config: CacheConfig):
         super().__init__(config)
-        self._client: Optional[redis.Redis] = None
-        self._last_available_check: float = 0
+        self._client: Optional["redis.Redis"] = None
+        self._last_available_check: float = 0.0
         self._last_available_result: bool = False
-
         if config.enabled and REDIS_AVAILABLE:
             self._connect()
 
     def _connect(self) -> None:
-        """Connect to Redis server."""
         try:
-            pool = redis.ConnectionPool(
+            pool = redis.ConnectionPool(  # type: ignore[attr-defined]
                 host=self.config.host,
                 port=self.config.port,
                 db=self.config.db,
@@ -355,32 +351,23 @@ class RedisCache(BaseCacheBackend):
                 max_connections=self.config.max_connections,
                 socket_timeout=self.config.socket_timeout,
                 socket_connect_timeout=self.config.socket_connect_timeout,
-                decode_responses=False  # We handle encoding ourselves
+                decode_responses=False,  # we handle encoding
             )
-            self._client = redis.Redis(connection_pool=pool)
-
-            # Test connection
+            self._client = redis.Redis(connection_pool=pool)  # type: ignore[attr-defined]
             self._client.ping()
             self._last_available_result = True
             self._last_available_check = time.time()
             logger.info(f"Connected to Redis at {self.config.host}:{self.config.port}")
-
-        except (redis.RedisError, Exception) as e:
+        except Exception as e:
             logger.error(f"Failed to connect to Redis: {e}")
             self._client = None
             self._last_available_result = False
 
     @property
     def available(self) -> bool:
-        """
-        Check if cache is available.
-
-        Caches the result to avoid ping overhead on every call.
-        """
         if not self.config.enabled or not REDIS_AVAILABLE or not self._client:
             return False
 
-        # Use cached result if recent enough
         now = time.time()
         if now - self._last_available_check < self.config.availability_check_interval:
             return self._last_available_result
@@ -388,201 +375,179 @@ class RedisCache(BaseCacheBackend):
         try:
             self._client.ping()
             self._last_available_result = True
-        except redis.RedisError:
+        except Exception:
             self._last_available_result = False
 
         self._last_available_check = now
         return self._last_available_result
 
     def get(self, key: str) -> Optional[Any]:
-        """Get value from cache."""
         if not self.available:
             return None
         try:
-            value = self._client.get(key)
-            if value:
-                return self._deserialize(value.decode("utf-8"))
-            return None
-        except (redis.RedisError, json.JSONDecodeError, UnicodeDecodeError) as e:
+            value = self._client.get(key)  # type: ignore[union-attr]
+            if not value:
+                return None
+            return self._deserialize(value.decode("utf-8"))
+        except Exception as e:
             logger.warning(f"Cache get error for {key}: {e}")
             return None
 
-    def set(self, key: str, value: Any, ttl: int = None) -> bool:
-        """Set value in cache with TTL."""
+    def set(self, key: str, value: Any, ttl: int | None = None) -> bool:
         if not self.available:
             return False
         try:
             ttl = ttl or self.config.default_ttl
-            serialized = self._serialize(value)
-            self._client.setex(key, ttl, serialized.encode("utf-8"))
+            serialized = self._serialize(value).encode("utf-8")
+            self._client.setex(key, ttl, serialized)  # type: ignore[union-attr]
             return True
-        except (redis.RedisError, TypeError) as e:
+        except Exception as e:
             logger.warning(f"Cache set error for {key}: {e}")
             return False
 
     def delete(self, key: str) -> bool:
-        """Delete key from cache."""
         if not self.available:
             return False
         try:
-            self._client.delete(key)
+            self._client.delete(key)  # type: ignore[union-attr]
             return True
-        except redis.RedisError as e:
+        except Exception as e:
             logger.warning(f"Cache delete error for {key}: {e}")
             return False
 
     def clear_pattern(self, pattern: str) -> int:
         """
         Delete keys matching pattern using SCAN.
-
-        Uses scan_iter() instead of keys() to avoid blocking Redis.
-        Deletes in batches for efficiency.
+        Pattern should be glob-style (use '*').
         """
         if not self.available:
             return 0
-        try:
-            count = 0
-            batch = []
-            batch_size = 100
 
-            for key in self._client.scan_iter(match=pattern, count=100):
-                batch.append(key)
+        count = 0
+        batch: list[bytes] = []
+        batch_size = 200
+
+        try:
+            # scan_iter returns bytes keys because decode_responses=False
+            for k in self._client.scan_iter(match=pattern, count=500):  # type: ignore[union-attr]
+                batch.append(k)
                 if len(batch) >= batch_size:
-                    self._client.delete(*batch)
+                    self._client.delete(*batch)  # type: ignore[union-attr]
                     count += len(batch)
                     batch = []
 
-            # Delete remaining keys
             if batch:
-                self._client.delete(*batch)
+                self._client.delete(*batch)  # type: ignore[union-attr]
                 count += len(batch)
 
             return count
-        except redis.RedisError as e:
-            logger.warning(f"Cache clear pattern error for {pattern}: {e}")
+        except Exception as e:
+            logger.warning(f"Cache clear_pattern error for {pattern}: {e}")
             return 0
 
     def _get_raw(self, key: str) -> Optional[bytes]:
-        """Get raw bytes from cache."""
         if not self.available:
             return None
         try:
-            return self._client.get(key)
-        except redis.RedisError as e:
+            return self._client.get(key)  # type: ignore[union-attr]
+        except Exception as e:
             logger.warning(f"Cache get_raw error for {key}: {e}")
             return None
 
     def _set_raw(self, key: str, value: bytes, ttl: int) -> bool:
-        """Set raw bytes in cache."""
         if not self.available:
             return False
         try:
-            self._client.setex(key, ttl, value)
+            self._client.setex(key, ttl, value)  # type: ignore[union-attr]
             return True
-        except redis.RedisError as e:
+        except Exception as e:
             logger.warning(f"Cache set_raw error for {key}: {e}")
             return False
 
-    def acquire_lock(self, lock_name: str, ttl: int = None) -> bool:
+    def acquire_lock(self, lock_name: str, ttl: int | None = None) -> Optional[str]:
         """
-        Acquire a distributed lock for stampede protection.
-
-        Args:
-            lock_name: Name of the lock
-            ttl: Lock TTL in seconds
-
-        Returns:
-            True if lock acquired, False otherwise
+        Acquire distributed lock. Returns token if acquired, None if not.
         """
         if not self.available:
-            return True  # Allow operation if cache unavailable
+            return "no-cache"  # treat as acquired
 
         ttl = ttl or self.config.lock_ttl
-        key = self._make_key(self.KEY_LOCK, lock_name)
+        key = self.make_key(self.KEY_LOCK, lock_name)
+        token = uuid.uuid4().hex
         try:
-            # SETNX returns True if key was set (lock acquired)
-            return bool(self._client.set(key, "1", nx=True, ex=ttl))
-        except redis.RedisError:
-            return True  # Allow operation on error
+            ok = self._client.set(key, token.encode("ascii"), nx=True, ex=ttl)  # type: ignore[union-attr]
+            return token if ok else None
+        except Exception:
+            return "no-cache"
 
-    def release_lock(self, lock_name: str) -> bool:
-        """Release a distributed lock."""
-        key = self._make_key(self.KEY_LOCK, lock_name)
-        return self.delete(key)
+    def release_lock(self, lock_name: str, token: str) -> bool:
+        """
+        Release lock only if token matches (prevents deleting someone else's lock).
+        """
+        if not self.available:
+            return True
+        key = self.make_key(self.KEY_LOCK, lock_name)
+        try:
+            res = self._client.eval(self._UNLOCK_LUA, 1, key, token.encode("ascii"))  # type: ignore[union-attr]
+            return bool(res)
+        except Exception:
+            return True
 
 
 class MemoryCache(BaseCacheBackend):
     """
-    Simple in-memory cache fallback when Redis is not available.
+    In-memory cache fallback. Not suitable for multi-process production.
 
-    Uses a dict with TTL tracking. Not suitable for production
-    multi-process deployments but useful for:
-    - Development/testing
-    - Single-process deployments
-    - Fallback when Redis is temporarily unavailable
-
-    Implements the same interface as RedisCache for compatibility.
+    Implements same behavior as RedisCache for compatibility.
     """
 
-    def __init__(self, config: CacheConfig = None):
+    def __init__(self, config: CacheConfig | None = None):
         super().__init__(config or CacheConfig(enabled=True))
-        self._cache: dict = {}
-        self._expiry: dict = {}
-        self._raw_cache: dict = {}  # For raw bytes storage
-        self._raw_expiry: dict = {}
+        self._cache: dict[str, Any] = {}
+        self._expiry: dict[str, datetime] = {}
+        self._raw_cache: dict[str, bytes] = {}
+        self._raw_expiry: dict[str, datetime] = {}
 
     @property
     def available(self) -> bool:
-        """Always available if enabled."""
-        return self.config.enabled
+        return bool(self.config.enabled)
 
     def _cleanup_expired(self) -> None:
-        """Remove expired entries."""
         now = datetime.now()
+        expired_keys = [k for k, exp in self._expiry.items() if now > exp]
+        for k in expired_keys:
+            self._cache.pop(k, None)
+            self._expiry.pop(k, None)
 
-        # Cleanup regular cache
-        expired = [k for k, exp in self._expiry.items() if now > exp]
-        for key in expired:
-            self._cache.pop(key, None)
-            self._expiry.pop(key, None)
-
-        # Cleanup raw cache
         expired_raw = [k for k, exp in self._raw_expiry.items() if now > exp]
-        for key in expired_raw:
-            self._raw_cache.pop(key, None)
-            self._raw_expiry.pop(key, None)
+        for k in expired_raw:
+            self._raw_cache.pop(k, None)
+            self._raw_expiry.pop(k, None)
 
     def get(self, key: str) -> Optional[Any]:
-        """Get value from cache."""
         if not self.available:
             return None
-
-        # Check expiry
-        if key in self._expiry:
-            if datetime.now() > self._expiry[key]:
-                del self._cache[key]
-                del self._expiry[key]
-                return None
-
+        exp = self._expiry.get(key)
+        if exp and datetime.now() > exp:
+            self._cache.pop(key, None)
+            self._expiry.pop(key, None)
+            return None
         return self._cache.get(key)
 
-    def set(self, key: str, value: Any, ttl: int = None) -> bool:
-        """Set value in cache."""
+    def set(self, key: str, value: Any, ttl: int | None = None) -> bool:
         if not self.available:
             return False
-
         ttl = ttl or self.config.default_ttl
         self._cache[key] = value
         self._expiry[key] = datetime.now() + timedelta(seconds=ttl)
 
-        # Periodic cleanup (every 100 sets)
-        if len(self._cache) % 100 == 0:
+        # periodic cleanup
+        if len(self._cache) % 200 == 0:
             self._cleanup_expired()
 
         return True
 
     def delete(self, key: str) -> bool:
-        """Delete key from cache."""
         self._cache.pop(key, None)
         self._expiry.pop(key, None)
         self._raw_cache.pop(key, None)
@@ -590,168 +555,154 @@ class MemoryCache(BaseCacheBackend):
         return True
 
     def clear_pattern(self, pattern: str) -> int:
-        """Delete keys matching pattern (glob-style with *)."""
-        import fnmatch
-
+        """
+        Glob-style pattern (supports '*').
+        """
         count = 0
-
-        # Clear from regular cache
-        keys_to_delete = [k for k in self._cache.keys() if fnmatch.fnmatch(k, pattern)]
-        for key in keys_to_delete:
-            self._cache.pop(key, None)
-            self._expiry.pop(key, None)
+        keys = [k for k in self._cache.keys() if fnmatch.fnmatch(k, pattern)]
+        for k in keys:
+            self._cache.pop(k, None)
+            self._expiry.pop(k, None)
             count += 1
 
-        # Clear from raw cache
-        raw_keys_to_delete = [k for k in self._raw_cache.keys() if fnmatch.fnmatch(k, pattern)]
-        for key in raw_keys_to_delete:
-            self._raw_cache.pop(key, None)
-            self._raw_expiry.pop(key, None)
+        raw_keys = [k for k in self._raw_cache.keys() if fnmatch.fnmatch(k, pattern)]
+        for k in raw_keys:
+            self._raw_cache.pop(k, None)
+            self._raw_expiry.pop(k, None)
             count += 1
 
         return count
 
     def _get_raw(self, key: str) -> Optional[bytes]:
-        """Get raw bytes from cache."""
         if not self.available:
             return None
-
-        if key in self._raw_expiry:
-            if datetime.now() > self._raw_expiry[key]:
-                del self._raw_cache[key]
-                del self._raw_expiry[key]
-                return None
-
+        exp = self._raw_expiry.get(key)
+        if exp and datetime.now() > exp:
+            self._raw_cache.pop(key, None)
+            self._raw_expiry.pop(key, None)
+            return None
         return self._raw_cache.get(key)
 
     def _set_raw(self, key: str, value: bytes, ttl: int) -> bool:
-        """Set raw bytes in cache."""
         if not self.available:
             return False
-
         self._raw_cache[key] = value
         self._raw_expiry[key] = datetime.now() + timedelta(seconds=ttl)
         return True
 
-    def acquire_lock(self, lock_name: str, ttl: int = None) -> bool:
-        """Acquire lock (always succeeds in single-process memory cache)."""
+    def acquire_lock(self, lock_name: str, ttl: int | None = None) -> Optional[str]:
+        # single-process fallback: always "acquired"
+        return "mem"
+
+    def release_lock(self, lock_name: str, token: str) -> bool:
         return True
 
-    def release_lock(self, lock_name: str) -> bool:
-        """Release lock (no-op in memory cache)."""
-        return True
 
-
-# Type alias for cache instances
-CacheInstance = Union[RedisCache, MemoryCache]
-
-
-def create_cache(config: CacheConfig) -> CacheInstance:
+def create_cache(config: CacheConfig) -> BaseCacheBackend:
     """
     Create cache instance based on configuration.
-
-    Falls back to MemoryCache if Redis is not available.
-    Both implementations share the same interface (BaseCacheBackend).
-
-    Args:
-        config: Cache configuration
-
-    Returns:
-        RedisCache if Redis is available, otherwise MemoryCache
+    Returns RedisCache if possible, otherwise MemoryCache.
     """
     if config.enabled and REDIS_AVAILABLE:
         cache = RedisCache(config)
         if cache.available:
             return cache
         logger.warning("Redis not available, falling back to memory cache")
-
     return MemoryCache(config)
 
 
-def cached(cache: CacheInstance, key_func: Callable, ttl: int = None):
+def cached(cache: CacheBackend, key_func: Callable[..., str], ttl: int | None = None):
     """
-    Decorator for caching function results.
-
-    Args:
-        cache: Cache instance (RedisCache or MemoryCache)
-        key_func: Function to generate cache key from args
-        ttl: Cache TTL in seconds
-
-    Usage:
-        @cached(cache, lambda name: f"template:{name}", ttl=3600)
-        def get_template(name: str) -> dict:
-            ...
+    Decorator for caching function results (no stampede protection).
     """
-    def decorator(func: Callable) -> Callable:
+
+    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
         @wraps(func)
-        def wrapper(*args, **kwargs):
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
             if not cache.available:
                 return func(*args, **kwargs)
 
-            # Generate cache key
-            cache_key = cache._make_key("func", key_func(*args, **kwargs))
+            suffix = key_func(*args, **kwargs)
+            cache_key = cache.make_key("func", suffix)
 
-            # Try to get from cache
             result = cache.get(cache_key)
             if result is not None:
                 logger.debug(f"Cache hit for {cache_key}")
                 return result
 
-            # Call function and cache result
             result = func(*args, **kwargs)
             if result is not None:
                 cache.set(cache_key, result, ttl or cache.config.default_ttl)
-
             return result
+
         return wrapper
+
     return decorator
 
 
-def cached_with_lock(cache: CacheInstance, key_func: Callable,
-                     ttl: int = None, lock_ttl: int = 10):
+def cached_with_lock(
+        cache: CacheBackend,
+        key_func: Callable[..., str],
+        ttl: int | None = None,
+        lock_ttl: int | None = None,
+        wait_timeout: float = 2.0,
+        wait_step: float = 0.1,
+):
     """
     Decorator for caching with stampede protection.
 
-    If multiple requests arrive for the same uncached key simultaneously,
-    only one will compute the value while others wait or return stale data.
+    - If key is missing, attempt to acquire a lock.
+    - If lock is held, wait (poll cache) up to wait_timeout.
+    - If still missing after waiting, compute as fallback.
 
-    Args:
-        cache: Cache instance
-        key_func: Function to generate cache key from args
-        ttl: Cache TTL in seconds
-        lock_ttl: Lock TTL in seconds
+    Lock release is safe (token-based) for Redis.
     """
-    def decorator(func: Callable) -> Callable:
+
+    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
         @wraps(func)
-        def wrapper(*args, **kwargs):
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
             if not cache.available:
                 return func(*args, **kwargs)
 
-            cache_key = cache._make_key("func", key_func(*args, **kwargs))
-            lock_key = f"lock:{key_func(*args, **kwargs)}"
+            suffix = key_func(*args, **kwargs)
+            cache_key = cache.make_key("func", suffix)
+            lock_name = f"func:{suffix}"
 
-            # Try to get from cache
+            # Fast path
             result = cache.get(cache_key)
             if result is not None:
                 return result
 
-            # Try to acquire lock
-            if hasattr(cache, 'acquire_lock') and not cache.acquire_lock(lock_key, lock_ttl):
-                # Another process is computing, wait a bit and retry cache
-                time.sleep(0.1)
+            # Acquire lock
+            effective_lock_ttl = lock_ttl or cache.config.lock_ttl
+            token = cache.acquire_lock(lock_name, effective_lock_ttl)
+
+            if token is None:
+                # Someone else is computing; wait for cache to fill
+                deadline = time.time() + wait_timeout
+                while time.time() < deadline:
+                    time.sleep(wait_step)
+                    result = cache.get(cache_key)
+                    if result is not None:
+                        return result
+                # Timeout fallback
+                return func(*args, **kwargs)
+
+            try:
+                # Double-check after acquiring lock (race)
                 result = cache.get(cache_key)
                 if result is not None:
                     return result
-                # Still no result, compute anyway (fallback)
 
-            try:
                 result = func(*args, **kwargs)
                 if result is not None:
                     cache.set(cache_key, result, ttl or cache.config.default_ttl)
                 return result
             finally:
-                if hasattr(cache, 'release_lock'):
-                    cache.release_lock(lock_key)
+                # Only release if we truly own a token lock
+                if token not in ("no-cache", "no-lock", "mem"):
+                    cache.release_lock(lock_name, token)
 
         return wrapper
+
     return decorator
