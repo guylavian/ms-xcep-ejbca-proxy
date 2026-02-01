@@ -18,7 +18,7 @@ from ldap3.core.exceptions import LDAPException
 logger = logging.getLogger(__name__)
 
 
-class LDAPError(Exception):`ççç
+class LDAPError(Exception):
     """Base exception for LDAP operations."""
     pass
 
