@@ -1,0 +1,77 @@
+# MS-XCEP/WSTEP to EJBCA Proxy - Docker Compose
+#
+# For development and testing. In production, use Kubernetes
+# or your orchestration platform of choice.
+
+version: '3.8'
+
+services:
+  xcep-proxy:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: xcep-proxy
+    ports:
+      - "443:443"
+    volumes:
+      # Configuration
+      - ./config:/app/config:ro
+      # Certificates
+      - ./certs/server.crt:/etc/proxy/server.crt:ro
+      - ./certs/server.key:/etc/proxy/server.key:ro
+      - ./certs/ejbca-client.crt:/etc/proxy/ejbca-client.crt:ro
+      - ./certs/ejbca-client.key:/etc/proxy/ejbca-client.key:ro
+      # Kerberos keytab
+      - ./certs/proxy.keytab:/etc/proxy/proxy.keytab:ro
+    environment:
+      - XCEP_CONFIG=/app/config/config.yaml
+      - KRB5_KTNAME=/etc/proxy/proxy.keytab
+    depends_on:
+      - redis
+    networks:
+      - xcep-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "-k", "https://localhost:443/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+
+  redis:
+    image: redis:7-alpine
+    container_name: xcep-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - xcep-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Optional: EJBCA for development (remove in production)
+  # ejbca:
+  #   image: keyfactor/ejbca-ce:latest
+  #   container_name: ejbca
+  #   ports:
+  #     - "8443:8443"
+  #     - "8080:8080"
+  #   environment:
+  #     - TLS_SETUP_ENABLED=simple
+  #   volumes:
+  #     - ejbca-data:/opt/keyfactor/ejbca-ce/data
+  #   networks:
+  #     - xcep-network
+
+networks:
+  xcep-network:
+    driver: bridge
+
+volumes:
+  redis-data:
+  # ejbca-data:

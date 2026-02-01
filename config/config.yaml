@@ -1,0 +1,127 @@
+# MS-XCEP/WSTEP to EJBCA Proxy Server Configuration
+
+server:
+  host: "0.0.0.0"
+  port: 443
+
+  # SSL/TLS settings (required for Kerberos)
+  ssl:
+    enabled: true
+    cert_file: "/etc/proxy/server.crt"
+    key_file: "/etc/proxy/server.key"
+    # Optional: CA certificate for client verification
+    ca_file: null
+
+  # Number of worker processes (for gunicorn)
+  workers: 4
+
+  # Request timeout in seconds
+  timeout: 30
+
+# EJBCA connection settings
+ejbca:
+  # EJBCA base URL
+  url: "https://ejbca.example.com/ejbca"
+
+  # Client certificate for mTLS authentication
+  client_cert: "/etc/proxy/ejbca-client.crt"
+  client_key: "/etc/proxy/ejbca-client.key"
+
+  # CA certificate for server verification (optional)
+  ca_cert: null
+
+  # Verify SSL certificate
+  verify_ssl: true
+
+  # Request timeout
+  timeout: 30
+
+  # Max retries for failed requests
+  max_retries: 3
+
+  # Default CA and profile names
+  default_ca: "MyCA"
+  default_end_entity_profile: "EMPTY"
+  default_cert_profile: "ENDUSER"
+
+# Active Directory settings
+active_directory:
+  # LDAP server URL (ldap:// or ldaps://)
+  ldap_url: "ldap://dc.example.com"
+
+  # Base DN for searches
+  base_dn: "DC=example,DC=com"
+
+  # Use Kerberos for LDAP authentication (recommended)
+  use_kerberos: true
+
+  # Alternative: username/password authentication
+  # username: "DOMAIN\\service_account"
+  # password: "password"
+
+  # Use SSL for LDAP
+  use_ssl: false
+  ca_cert_file: null
+
+  # Connection timeouts
+  connect_timeout: 10
+  receive_timeout: 30
+
+# Kerberos authentication settings
+kerberos:
+  # Service principal name (must match server certificate CN/SAN)
+  service_principal: "HTTP/proxy.example.com@EXAMPLE.COM"
+
+  # Path to keytab file
+  keytab: "/etc/proxy/proxy.keytab"
+
+  # Allow fallback to other auth methods
+  allow_fallback: false
+
+  # Require mutual authentication
+  mutual_auth: false
+
+# Redis caching settings
+cache:
+  enabled: true
+
+  # Redis connection
+  host: "localhost"
+  port: 6379
+  db: 0
+  password: null
+
+  # Connection pool
+  max_connections: 10
+  socket_timeout: 5.0
+
+  # TTLs in seconds
+  policy_ttl: 7200       # 2 hours for GetPolicies responses
+  template_ttl: 14400    # 4 hours for AD template info
+  ca_info_ttl: 86400     # 24 hours for CA information
+
+  # Key prefix
+  key_prefix: "xcep_proxy:"
+
+# Logging settings
+logging:
+  # Log level: DEBUG, INFO, WARNING, ERROR, CRITICAL
+  level: "INFO"
+
+  # Output format: true for JSON (SIEM), false for console
+  json_format: false
+
+  # Optional log file
+  file: null
+
+# Template mapping file location
+template_mapping_file: "/etc/proxy/template_mapping.yaml"
+
+# Development/Testing settings
+development:
+  # Enable mock Kerberos (for testing without real Kerberos)
+  mock_kerberos: false
+  mock_principal: "testuser@EXAMPLE.COM"
+
+  # Enable debug mode (verbose errors)
+  debug: false

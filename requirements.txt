@@ -1,0 +1,28 @@
+# Web framework
+flask>=3.0.0
+gunicorn>=21.0.0
+
+# XML processing (C-based for performance)
+lxml>=5.0.0
+
+# REST client
+requests>=2.31.0
+urllib3>=2.0.0
+
+# LDAP client
+ldap3>=2.9.1
+
+# Kerberos/GSSAPI
+gssapi>=1.8.3
+
+# Cryptography
+cryptography>=41.0.0
+
+# Caching
+redis>=5.0.0
+
+# Configuration
+PyYAML>=6.0.1
+
+# Structured logging
+structlog>=24.0.0

@@ -1,0 +1,104 @@
+# Certificate Template Mappings
+#
+# Maps Active Directory certificate templates to EJBCA profiles.
+# This allows Windows clients to request certificates using familiar
+# AD template names, which are then fulfilled by EJBCA.
+
+mappings:
+  # User certificate template
+  - ad_template: "User"
+    ad_template_oid: "1.3.6.1.4.1.311.21.8.16335329"
+    ejbca_ee_profile: "UserEndEntityProfile"
+    ejbca_cert_profile: "UserCertProfile"
+    ejbca_ca_name: "MyCA"
+    auto_enrollment: true
+    validity: "1y"
+    allowed_groups:
+      - "Domain Users"
+
+  # Computer/Machine certificate template
+  - ad_template: "Computer"
+    ad_template_oid: "1.3.6.1.4.1.311.21.8.16335330"
+    ejbca_ee_profile: "ComputerEndEntityProfile"
+    ejbca_cert_profile: "ComputerCertProfile"
+    ejbca_ca_name: "MyCA"
+    auto_enrollment: true
+    validity: "1y"
+    allowed_groups:
+      - "Domain Computers"
+
+  # Web Server certificate template
+  - ad_template: "WebServer"
+    ad_template_oid: "1.3.6.1.4.1.311.21.8.16335331"
+    ejbca_ee_profile: "ServerEndEntityProfile"
+    ejbca_cert_profile: "TLSServerCertProfile"
+    ejbca_ca_name: "MyCA"
+    auto_enrollment: false
+    validity: "1y"
+    allowed_groups:
+      - "Web Administrators"
+      - "Server Admins"
+
+  # Domain Controller certificate template
+  - ad_template: "DomainController"
+    ad_template_oid: "1.3.6.1.4.1.311.21.8.16335332"
+    ejbca_ee_profile: "DomainControllerProfile"
+    ejbca_cert_profile: "DomainControllerCertProfile"
+    ejbca_ca_name: "MyCA"
+    auto_enrollment: true
+    validity: "1y"
+    allowed_groups:
+      - "Domain Controllers"
+
+  # Workstation Authentication template
+  - ad_template: "Workstation"
+    ad_template_oid: "1.3.6.1.4.1.311.21.8.16335333"
+    ejbca_ee_profile: "WorkstationProfile"
+    ejbca_cert_profile: "WorkstationCertProfile"
+    ejbca_ca_name: "MyCA"
+    auto_enrollment: true
+    validity: "1y"
+    allowed_groups:
+      - "Domain Computers"
+
+  # Code Signing certificate template
+  - ad_template: "CodeSigning"
+    ad_template_oid: "1.3.6.1.4.1.311.21.8.16335334"
+    ejbca_ee_profile: "CodeSigningProfile"
+    ejbca_cert_profile: "CodeSigningCertProfile"
+    ejbca_ca_name: "MyCA"
+    auto_enrollment: false
+    validity: "2y"
+    allowed_groups:
+      - "Developers"
+      - "Code Signers"
+
+  # Email/S-MIME certificate template
+  - ad_template: "EmailEncryption"
+    ad_template_oid: "1.3.6.1.4.1.311.21.8.16335335"
+    ejbca_ee_profile: "EmailProfile"
+    ejbca_cert_profile: "SMIMECertProfile"
+    ejbca_ca_name: "MyCA"
+    auto_enrollment: false
+    validity: "1y"
+    allowed_groups:
+      - "Domain Users"
+
+  # Smart Card Logon template
+  - ad_template: "SmartcardLogon"
+    ad_template_oid: "1.3.6.1.4.1.311.21.8.16335336"
+    ejbca_ee_profile: "SmartcardProfile"
+    ejbca_cert_profile: "SmartcardLogonCertProfile"
+    ejbca_ca_name: "MyCA"
+    auto_enrollment: false
+    validity: "1y"
+    allowed_groups:
+      - "Smartcard Users"
+
+# Default settings for templates not in the mapping
+defaults:
+  ejbca_ee_profile: "EMPTY"
+  ejbca_cert_profile: "ENDUSER"
+  ejbca_ca_name: "MyCA"
+  auto_enrollment: false
+  validity: "1y"
