@@ -1,6 +1,7 @@
 # MS-XCEP/WSTEP to EJBCA Proxy Server
 
-A Python proxy server that implements Microsoft's MS-XCEP (Certificate Enrollment Policy) and MS-WSTEP (Certificate Enrollment) protocols to enable Windows certificate autoenrollment against EJBCA instead of Microsoft AD CS.
+A Python proxy server that implements Microsoft's MS-XCEP (Certificate Enrollment Policy) and MS-WSTEP (Certificate
+Enrollment) protocols to enable Windows certificate autoenrollment against EJBCA instead of Microsoft AD CS.
 
 ## Features
 
@@ -57,17 +58,20 @@ pip install -r requirements.txt
 ### Configuration
 
 1. Copy and edit the configuration file:
+
 ```bash
 cp config/config.yaml config/config.local.yaml
 # Edit config/config.local.yaml with your settings
 ```
 
 2. Configure template mappings:
+
 ```bash
 # Edit config/template_mapping.yaml
 ```
 
 3. Set up certificates:
+
 ```bash
 mkdir -p certs
 # Place your server certificate, key, and EJBCA client certificate
@@ -76,12 +80,14 @@ mkdir -p certs
 ### Running the Server
 
 #### Development Mode
+
 ```bash
 # With mock Kerberos (for testing)
 python -m src.main -c config/config.local.yaml -d
 ```
 
 #### Production Mode
+
 ```bash
 # Using gunicorn
 gunicorn \
@@ -93,6 +99,7 @@ gunicorn \
 ```
 
 #### Docker
+
 ```bash
 # Build and run
 docker-compose up -d
@@ -130,31 +137,35 @@ ejbca:
 For the proxy to work correctly, EJBCA must be configured with matching profiles:
 
 #### End Entity Profile Requirements
+
 - **Subject DN**: Must allow the DN pattern from the CSR (e.g., `CN=*`)
 - **Subject DN validation**: Set to "Use subject DN from CSR" or allow override
 - **Key algorithms**: Must match what Windows clients send (typically RSA 2048/4096)
 - **Certificate profiles**: Must list the certificate profile used in the mapping
 
 #### Certificate Profile Requirements
+
 - **Key Usage**: Match the intended use (digitalSignature, keyEncipherment, etc.)
 - **Extended Key Usage**: Include required EKUs based on template type:
-  - User: `clientAuth`, `emailProtection`
-  - Computer: `clientAuth`, `serverAuth`
-  - WebServer: `serverAuth`
-  - CodeSigning: `codeSigning`
+    - User: `clientAuth`, `emailProtection`
+    - Computer: `clientAuth`, `serverAuth`
+    - WebServer: `serverAuth`
+    - CodeSigning: `codeSigning`
 - **Subject Alternative Names**: Allow SAN from CSR if clients include it
 - **Validity**: Sufficient for the template's validity period
 
 #### CA Requirements
+
 - CA must be in **active state**
 - CA must have sufficient validity to issue certificates
 - CA must be listed in the certificate profile's available CAs
 
 #### REST API Authentication
+
 - The mTLS client certificate used by the proxy must have an admin role with:
-  - `ca_functionality`: To access CA information
-  - `endentity`: To create/modify end entities
-  - `ra_functionality`: To issue certificates
+    - `ca_functionality`: To access CA information
+    - `endentity`: To create/modify end entities
+    - `ra_functionality`: To issue certificates
 
 ### Kerberos Configuration
 
@@ -180,6 +191,7 @@ mappings:
 ```
 
 **Important**: The `ad_template_oid` should be the real OID from Active Directory. You can find it using:
+
 ```powershell
 # PowerShell - get template OIDs from AD
 Get-ADObject -SearchBase "CN=Certificate Templates,CN=Public Key Services,CN=Services,CN=Configuration,DC=example,DC=com" -Filter {objectClass -eq "pKICertificateTemplate"} -Properties msPKI-Cert-Template-OID | Select Name, msPKI-Cert-Template-OID
@@ -209,11 +221,11 @@ certutil -pulse
 
 ## API Endpoints
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/ADPolicyProvider_CEP_Kerberos/service.svc/CEP` | POST | MS-XCEP GetPolicies |
-| `/ADPolicyProvider_CES_Kerberos/service.svc/CES` | POST | MS-WSTEP RequestSecurityToken |
-| `/health` | GET | Health check |
+| Endpoint                                         | Method | Description                   |
+|--------------------------------------------------|--------|-------------------------------|
+| `/ADPolicyProvider_CEP_Kerberos/service.svc/CEP` | POST   | MS-XCEP GetPolicies           |
+| `/ADPolicyProvider_CES_Kerberos/service.svc/CES` | POST   | MS-WSTEP RequestSecurityToken |
+| `/health`                                        | GET    | Health check                  |
 
 ## Development
 
@@ -256,23 +268,24 @@ ms-xcep-ejbca-proxy/
 ### Common Issues
 
 1. **Kerberos authentication fails**
-   - Verify keytab is correctly generated
-   - Check SPN matches server certificate
-   - Ensure time sync between client and server
+    - Verify keytab is correctly generated
+    - Check SPN matches server certificate
+    - Ensure time sync between client and server
 
 2. **EJBCA returns 400 Bad Request**
-   - Verify end entity profile allows the requested DN
-   - Check certificate profile settings
-   - Ensure CA is in active state
+    - Verify end entity profile allows the requested DN
+    - Check certificate profile settings
+    - Ensure CA is in active state
 
 3. **Windows client doesn't see templates**
-   - Check policy response structure
-   - Verify template OIDs match
-   - Test with certutil -ping
+    - Check policy response structure
+    - Verify template OIDs match
+    - Test with certutil -ping
 
 ### Debug Mode
 
 Enable debug logging:
+
 ```yaml
 logging:
   level: "DEBUG"

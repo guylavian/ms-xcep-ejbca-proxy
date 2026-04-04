@@ -13,9 +13,9 @@ import structlog
 
 
 def configure_logging(
-    level: str = "INFO",
-    json_format: bool = False,
-    log_file: Optional[str] = None
+        level: str = "INFO",
+        json_format: bool = False,
+        log_file: Optional[str] = None
 ) -> None:
     """
     Configure structured logging for the application.
@@ -104,12 +104,12 @@ class AuditLogger:
         self.logger = structlog.get_logger(name)
 
     def log_enrollment_request(
-        self,
-        client_identity: str,
-        client_ip: str,
-        template_name: str,
-        csr_subject: str,
-        request_id: str = None
+            self,
+            client_identity: str,
+            client_ip: str,
+            template_name: str,
+            csr_subject: str,
+            request_id: str = None
     ) -> None:
         """
         Log a certificate enrollment request.
@@ -133,14 +133,14 @@ class AuditLogger:
         )
 
     def log_enrollment_success(
-        self,
-        client_identity: str,
-        template_name: str,
-        serial_number: str,
-        subject_dn: str,
-        issuer_dn: str,
-        not_after: str,
-        request_id: str = None
+            self,
+            client_identity: str,
+            template_name: str,
+            serial_number: str,
+            subject_dn: str,
+            issuer_dn: str,
+            not_after: str,
+            request_id: str = None
     ) -> None:
         """
         Log successful certificate enrollment.
@@ -168,12 +168,12 @@ class AuditLogger:
         )
 
     def log_enrollment_failure(
-        self,
-        client_identity: str,
-        template_name: str,
-        error_code: str,
-        error_message: str,
-        request_id: str = None
+            self,
+            client_identity: str,
+            template_name: str,
+            error_code: str,
+            error_message: str,
+            request_id: str = None
     ) -> None:
         """
         Log failed certificate enrollment.
@@ -197,10 +197,10 @@ class AuditLogger:
         )
 
     def log_policy_request(
-        self,
-        client_identity: str,
-        client_ip: str,
-        policies_returned: int
+            self,
+            client_identity: str,
+            client_ip: str,
+            policies_returned: int
     ) -> None:
         """
         Log a GetPolicies request.
@@ -220,10 +220,10 @@ class AuditLogger:
         )
 
     def log_authentication_failure(
-        self,
-        client_ip: str,
-        auth_method: str,
-        error: str
+            self,
+            client_ip: str,
+            auth_method: str,
+            error: str
     ) -> None:
         """
         Log authentication failure.
@@ -243,10 +243,10 @@ class AuditLogger:
         )
 
     def log_authorization_denied(
-        self,
-        client_identity: str,
-        resource: str,
-        reason: str
+            self,
+            client_identity: str,
+            resource: str,
+            reason: str
     ) -> None:
         """
         Log authorization denial.

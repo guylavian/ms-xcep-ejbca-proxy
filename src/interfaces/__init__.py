@@ -8,8 +8,8 @@ This module defines abstract interfaces that allow for:
 """
 
 from .ca import CAClient, CAError, CAValidationError
-from .ldap import LDAPClient, LDAPError
 from .cache import CacheBackend
+from .ldap import LDAPClient, LDAPError
 
 __all__ = [
     "CAClient",

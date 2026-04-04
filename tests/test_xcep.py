@@ -53,7 +53,7 @@ class MockPolicyProvider:
     def get_policies_for_client(self, client_identity: str) -> tuple:
         """Return policies and groups_hash."""
         return self.policies, "test_groups_hash"
-    
+
     def get_groups_hash(self, client_identity: str) -> str:
         """Return groups hash for caching."""
         return "test_groups_hash"

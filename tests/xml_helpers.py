@@ -137,7 +137,7 @@ def _compare_elements(actual: _Element, expected: _Element,
 
     # Compare each child
     for i, (actual_child, expected_child) in enumerate(
-        zip(actual_children, expected_children)
+            zip(actual_children, expected_children)
     ):
         _compare_elements(actual_child, expected_child, differences,
                           ignore_values, current_path)

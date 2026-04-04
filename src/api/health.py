@@ -4,8 +4,9 @@ Health check endpoints Blueprint.
 Provides Kubernetes-compatible liveness and readiness probes.
 """
 
-from flask import Blueprint, current_app
 import os
+
+from flask import Blueprint, current_app
 
 health_bp = Blueprint("health", __name__)
 

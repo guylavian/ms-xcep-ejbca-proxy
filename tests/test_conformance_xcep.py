@@ -54,7 +54,7 @@ class MockPolicyProvider:
                     common_name="User",
                     certificate_validity=CertificateValidity(
                         validity_period_seconds=31536000,  # 1 year
-                        renewal_period_seconds=5184000     # 60 days
+                        renewal_period_seconds=5184000  # 60 days
                     ),
                     permission_enroll=True,
                     permission_auto_enroll=True,
@@ -70,7 +70,7 @@ class MockPolicyProvider:
                     common_name="Computer",
                     certificate_validity=CertificateValidity(
                         validity_period_seconds=63072000,  # 2 years
-                        renewal_period_seconds=7776000     # 90 days
+                        renewal_period_seconds=7776000  # 90 days
                     ),
                     permission_enroll=True,
                     permission_auto_enroll=False,

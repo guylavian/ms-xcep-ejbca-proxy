@@ -4,7 +4,6 @@ Certificate Authority client interface.
 Defines the protocol for CA backends (EJBCA, Dogtag, etc.)
 """
 
-from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Optional, List, Protocol, runtime_checkable
 

@@ -8,9 +8,10 @@ Uses ldap3 library for LDAP operations.
 import logging
 from dataclasses import dataclass
 from typing import Optional
+
 from ldap3 import (
     Server, Connection, ALL, NTLM, SASL, KERBEROS,
-    SUBTREE, BASE, MODIFY_REPLACE
+    SUBTREE, BASE
 )
 from ldap3.core.exceptions import LDAPException
 
@@ -170,23 +171,23 @@ class ADLDAPClient:
 
         # Certificate template attributes we need
         attributes = [
-            "cn",                          # Common Name
-            "displayName",                 # Display Name
-            "msPKI-Cert-Template-OID",     # Template OID
+            "cn",  # Common Name
+            "displayName",  # Display Name
+            "msPKI-Cert-Template-OID",  # Template OID
             "msPKI-Template-Schema-Version",  # Schema version
-            "msPKI-Private-Key-Flag",      # Private key flags
-            "msPKI-Certificate-Name-Flag", # Subject name flags
-            "msPKI-Enrollment-Flag",       # Enrollment flags
-            "msPKI-RA-Signature",          # RA signature required
-            "msPKI-Minimal-Key-Size",      # Minimum key size
-            "pKIExpirationPeriod",         # Validity period
-            "pKIOverlapPeriod",            # Renewal overlap period
-            "pKIExtendedKeyUsage",         # Extended Key Usage OIDs
-            "pKIDefaultKeySpec",           # Key specification
-            "pKICriticalExtensions",       # Critical extensions
-            "revision",                    # Template revision
-            "flags",                       # General flags
-            "nTSecurityDescriptor",        # Security descriptor (ACL)
+            "msPKI-Private-Key-Flag",  # Private key flags
+            "msPKI-Certificate-Name-Flag",  # Subject name flags
+            "msPKI-Enrollment-Flag",  # Enrollment flags
+            "msPKI-RA-Signature",  # RA signature required
+            "msPKI-Minimal-Key-Size",  # Minimum key size
+            "pKIExpirationPeriod",  # Validity period
+            "pKIOverlapPeriod",  # Renewal overlap period
+            "pKIExtendedKeyUsage",  # Extended Key Usage OIDs
+            "pKIDefaultKeySpec",  # Key specification
+            "pKICriticalExtensions",  # Critical extensions
+            "revision",  # Template revision
+            "flags",  # General flags
+            "nTSecurityDescriptor",  # Security descriptor (ACL)
         ]
 
         try:
@@ -366,7 +367,7 @@ class ADLDAPClient:
                 search_filter=f"(&(objectClass=user)(sAMAccountName={username}))",
                 search_scope=SUBTREE,
                 attributes=["distinguishedName", "sAMAccountName", "userPrincipalName",
-                           "memberOf", "objectSid"]
+                            "memberOf", "objectSid"]
             )
 
             if self.connection.entries:
@@ -403,7 +404,7 @@ class ADLDAPClient:
                 search_filter=f"(&(objectClass=computer)(sAMAccountName={computer_name}))",
                 search_scope=SUBTREE,
                 attributes=["distinguishedName", "sAMAccountName", "dNSHostName",
-                           "memberOf", "objectSid", "operatingSystem"]
+                            "memberOf", "objectSid", "operatingSystem"]
             )
 
             if self.connection.entries:
@@ -436,7 +437,7 @@ class ADLDAPClient:
                 search_filter="(objectClass=pKIEnrollmentService)",
                 search_scope=SUBTREE,
                 attributes=["cn", "displayName", "dNSHostName",
-                           "certificateTemplates", "cACertificate"]
+                            "certificateTemplates", "cACertificate"]
             )
 
             services = []

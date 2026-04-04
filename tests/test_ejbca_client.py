@@ -12,7 +12,6 @@ from src.ejbca.client import (
 )
 from src.ejbca.models import EnrollmentRequest, EndEntity
 
-
 # Test configuration - using mock certificates
 TEST_CONFIG = EJBCAConfig(
     base_url="https://ejbca.example.com/ejbca",

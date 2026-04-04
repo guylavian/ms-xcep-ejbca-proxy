@@ -14,12 +14,9 @@ NOTE: This module is kept for backward compatibility.
       New code should use src.app.create_app() instead.
 """
 
-import os
-from flask import Flask
-
+from .app import create_app, create_wsgi_app
 # Re-export from new locations for backward compatibility
 from .config import AppConfig, load_config
-from .app import create_app, create_wsgi_app
 from .utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -31,7 +28,6 @@ __all__ = [
     "create_app",
     "create_wsgi_app",
 ]
-
 
 # Development server
 if __name__ == "__main__":
